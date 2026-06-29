@@ -1,36 +1,41 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import os
 
-# 1. Konfigurasi Halaman Web
-st.set_page_config(
-    page_title="Prediksi Harga Laptop", 
-    page_icon="💻", 
-    layout="wide"
-)
+# --- 1. Konfigurasi Halaman ---
+st.set_page_config(page_title="Prediksi Harga Laptop", page_icon="💻", layout="wide")
 
-# 2. Load Model & Encoders (menggunakan cache agar web tidak lemot)
+# --- 2. Load Model & Encoders ---
+# BASE_DIR membantu aplikasi menemukan file di server manapun dia dijalankan
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, 'laptop_price_prediction_model.pkl')
+ENCODER_PATH = os.path.join(BASE_DIR, 'label_encoders.pkl')
+
 @st.cache_resource
 def load_assets():
-    model = joblib.load("laptop_price_prediction_model.pkl")
-    encoders = joblib.load("label_encoders.pkl")
+    if not os.path.exists(MODEL_PATH) or not os.path.exists(ENCODER_PATH):
+        # Menampilkan pesan error spesifik jika file hilang
+        st.error(f"File .pkl tidak ditemukan di {BASE_DIR}. Pastikan file sudah di-upload ke GitHub.")
+        st.stop()
+    
+    model = joblib.load(MODEL_PATH)
+    encoders = joblib.load(ENCODER_PATH)
     return model, encoders
 
-try:
-    model, encoders = load_assets()
-except Exception as e:
-    st.error(f"Gagal memuat file model (.pkl). Pastikan kedua file .pkl berada di folder yang sama! Error: {e}")
-    st.stop()
+# Panggil fungsi load
+model, encoders = load_assets()
 
+# --- 3. Antarmuka (UI) ---
 st.title("💻 Laptop Price Prediction App")
-st.markdown("Aplikasi estimasi harga laptop berbasis **Gradient Boosting Regressor**.")
+st.markdown("Masukkan spesifikasi laptop untuk mendapatkan estimasi harga.")
 st.divider()
 
-# 3. Form Input User (Dibagi menjadi 3 kolom agar rapi)
+# Layout 3 kolom
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.subheader("🏢 Identitas Utama")
+    st.subheader("🏢 Spesifikasi Utama")
     brand = st.selectbox("Brand Laptop", encoders['brand'].classes_)
     processor = st.selectbox("Tipe Processor", encoders['processor'].classes_)
     cpu = st.selectbox("Konfigurasi CPU", encoders['CPU'].classes_)
@@ -38,26 +43,27 @@ with col1:
     os = st.selectbox("Sistem Operasi (OS)", encoders['OS'].classes_)
 
 with col2:
-    st.subheader("💾 Kapasitas & Memori")
-    ram = st.selectbox("RAM (GB)", [4, 8, 12, 16, 24, 32, 64], index=1)
+    st.subheader("💾 Memori & Garansi")
+    ram = st.selectbox("RAM (GB)", [4, 8, 12, 16, 24, 32, 64])
     ram_type = st.selectbox("Tipe RAM", encoders['Ram_type'].classes_)
-    rom = st.selectbox("Kapasitas Penyimpanan / ROM (GB)", [64, 128, 256, 512, 1024, 2048], index=3)
+    rom = st.selectbox("Penyimpanan (GB)", [64, 128, 256, 512, 1024, 2048])
     rom_type = st.selectbox("Tipe Penyimpanan", encoders['ROM_type'].classes_)
-    warranty = st.selectbox("Garansi (Tahun)", [0, 1, 2, 3], index=1)
+    warranty = st.selectbox("Garansi (Tahun)", [0, 1, 2, 3])
 
 with col3:
-    st.subheader("🖥️ Layar & Performa")
+    st.subheader("🖥️ Layar & Rating")
     display_size = st.number_input("Ukuran Layar (Inch)", min_value=11.0, max_value=18.0, value=15.6, step=0.1)
-    res_width = st.selectbox("Resolusi Width (Pixel)", [1366.0, 1920.0, 2240.0, 2560.0, 2880.0, 3200.0, 3840.0], index=1)
-    res_height = st.selectbox("Resolusi Height (Pixel)", [768.0, 900.0, 1080.0, 1200.0, 1400.0, 1600.0, 1800.0, 2160.0], index=2)
+    res_width = st.selectbox("Resolusi Width (Pixel)", [1366.0, 1920.0, 2240.0, 2560.0, 2880.0, 3200.0, 3840.0])
+    res_height = st.selectbox("Resolusi Height (Pixel)", [768.0, 900.0, 1080.0, 1200.0, 1400.0, 1600.0, 1800.0, 2160.0])
     spec_rating = st.slider("Skor Rating Spesifikasi", min_value=60.0, max_value=89.0, value=69.38)
 
 st.divider()
 
-# 4. Tombol Prediksi
-if st.button("🔍 Hitung Prediksi Harga", use_container_width=True, type="primary"):
+# --- 4. Proses Prediksi ---
+if st.button("🔍 Hitung Estimasi Harga", use_container_width=True, type="primary"):
     try:
-        # PENTING: Urutan 14 kolom di bawah ini SUDAH DIKUNCI sama persis dengan X_train di Notebook!
+        # Mengubah input menjadi data frame sesuai urutan pelatihan di Notebook
+        # URUTAN WAJIB SAMA DENGAN df_ml.drop(columns=["price"]) di notebook
         input_data = pd.DataFrame({
             'brand': [encoders['brand'].transform([brand])[0]],
             'spec_rating': [float(spec_rating)],
@@ -75,13 +81,12 @@ if st.button("🔍 Hitung Prediksi Harga", use_container_width=True, type="prima
             'warranty': [int(warranty)]
         })
 
-        # Jalankan Prediksi
+        # Prediksi
         prediction = model.predict(input_data)[0]
 
-        # Tampilkan Output
-        st.balloons()
-        st.success("### Hasil Estimasi Harga Laptop:")
-        st.metric(label="Rekomendasi Harga Jual/Beli", value=f"Rp {prediction:,.2f}")
-
+        # Tampilkan hasil
+        st.success("### Estimasi Harga Laptop:")
+        st.metric(label="Harga", value=f"Rp {prediction:,.2f}")
+        
     except Exception as e:
-        st.error(f"Terjadi kesalahan saat melakukan kalkulasi: {e}")
+        st.error(f"Terjadi kesalahan saat memproses data: {e}")
